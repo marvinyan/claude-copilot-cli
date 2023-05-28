@@ -1,13 +1,13 @@
-import { myPackage } from '../src';
+import { streamResponse } from '../src';
 
 describe('index', () => {
   describe('myPackage', () => {
-    it('should return a string containing the message', () => {
-      const message = 'Hello';
+    it('should print streaming response', () => {
+      const humanInput = 'Hello';
 
-      const result = myPackage(message);
+      const result = streamResponse();
 
-      expect(result).toMatch(message);
+      expect(result).toContain('hello');
     });
   });
 });
