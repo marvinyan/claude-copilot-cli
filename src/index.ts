@@ -5,6 +5,8 @@ import { Client, CompletionResponse, HUMAN_PROMPT } from '@anthropic-ai/sdk';
 import { PROMPT_TEMPLATE } from './constants.js';
 import format from 'string-template';
 import inquirer, { ListQuestion } from 'inquirer';
+import { exec } from 'child_process';
+import util from 'util';
 
 import chalk from 'chalk';
 
@@ -14,6 +16,7 @@ if (!apiKey) {
 }
 
 const client = new Client(apiKey);
+const execPromisified = util.promisify(exec);
 
 const [, , ...args] = process.argv;
 
@@ -39,33 +42,31 @@ const completeSync = async function (
   return Promise.reject(new Error('Failed to complete'));
 };
 
-function displayResult(query: string, command: string, explanation: string) {
+function displayResult(query: string, commands: string[], explanation: string) {
   const headerStyle = chalk.black.bgWhite;
   const lineLength = 100;
 
   function createCenteredHeader(text: string, lineLength: number) {
     const spacesLength = Math.abs(lineLength - text.length - 2);
     const halfSpaces = '─'.repeat(Math.floor(spacesLength / 2));
-    return (
-      halfSpaces +
-      ' ' +
-      text +
-      ' ' +
-      halfSpaces +
-      (spacesLength % 2 === 1 ? '─' : '')
-    );
+    return `${halfSpaces} ${text} ${halfSpaces}${
+      spacesLength % 2 === 1 ? '─' : ''
+    }`;
   }
 
   console.log();
   console.log(createCenteredHeader(headerStyle('Query'), lineLength));
   console.log(`\n${query}\n`);
   console.log(createCenteredHeader(headerStyle('Command'), lineLength));
-  console.log(`\n${command}\n`);
+  console.log(`\n${commands.join('\n')}\n`);
   console.log(createCenteredHeader(headerStyle('Explanation'), lineLength));
   console.log(`\n${explanation}\n`);
 }
 
-async function showUserChoices() {
+async function showUserChoices(
+  history: string[],
+  commands: string[]
+): Promise<void> {
   const question: ListQuestion<{ choice: string }> = {
     type: 'list',
     name: 'choice',
@@ -81,10 +82,40 @@ async function showUserChoices() {
   const choice = answer.choice.split(' ')[0];
 
   switch (choice) {
-    // case '✅':
-    //   // TODO: Execute the command (use appropriate method, such as child_process.exec)
-    //   break;
-    // case '🤔':
+    case '✅': {
+      // Show confirmation message
+      console.log('This will execute the suggested commands in your shell.');
+
+      // Confirm execution of the commands
+      const confirmAnswer: { executeDecision: string } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'executeDecision',
+          message: 'Are you sure? (y/n)',
+        },
+      ]);
+
+      if (confirmAnswer.executeDecision.toLowerCase() === 'y') {
+        for (const cmd of commands) {
+          try {
+            const { stdout, stderr } = await execPromisified(cmd);
+            if (stdout) console.log(stdout);
+            if (stderr) console.error(stderr);
+          } catch (error: unknown) {
+            if (error instanceof Error) {
+              console.error(`Error executing command: ${error.message}`);
+            } else {
+              console.error('Error executing command: ', error);
+            }
+          }
+        }
+      } else {
+        console.log('Not executing the commands.');
+        return showUserChoices(history, commands);
+      }
+      break;
+    }
+    // case '🤔': {
     //   const revisedQueryAnswer = await inquirer.prompt([
     //     {
     //       type: 'input',
@@ -94,8 +125,9 @@ async function showUserChoices() {
     //   ]);
     //   // Add the new query to the history array and re-run completeSync
     //   history.push(revisedQueryAnswer.revisedQuery);
-    //   completeSync(revisedQueryAnswer.revisedQuery);
+    //   await runCliHelp(history);
     //   break;
+    // }
     case '❌':
       break;
     default:
@@ -104,16 +136,20 @@ async function showUserChoices() {
 }
 
 const query = args.length === 1 ? args[0] : args.join(' ');
-const prompt = format(PROMPT_TEMPLATE, { userInput: query });
-const history = [];
 
-completeSync(prompt)
-  .then(res => {
+async function runCliHelp(history: string[]) {
+  const userInput = history.join(' ');
+  const prompt = format(PROMPT_TEMPLATE, { userInput });
+
+  try {
+    const res = await completeSync(prompt);
     const completionText = JSON.parse(res.completion);
     const { commands, explanation } = completionText;
-    displayResult(query, commands, explanation);
-    return showUserChoices(); // 3. Add a return statement
-  })
-  .catch(error => {
-    process.stdout.write(error);
-  });
+    displayResult(userInput, commands, explanation);
+    await showUserChoices(history, commands);
+  } catch (error) {
+    console.error(error);
+  }
+}
+
+void runCliHelp([query]);

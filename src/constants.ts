@@ -10,8 +10,10 @@ const SAMPLE_RESPONSE = {
 export const PROMPT_TEMPLATE = `${HUMAN_PROMPT} Provide the terminal command(s) that would satisfy\
  this request: "{userInput}". When replying, follow these guidelines:
  
-- Your response must be a parsable JSON string with no other commentary before or after the string.
+- Your response must solely be a valid JSON string with no other commentary.
 - The JSON string must contain a \`commands\` field and an \`explanation\` field.
+- If a command contains flags or options, include them in your explanation as sub-bullets.
+
 A sample response is shown below to help you understand the expected format:
 
 \`\`\`
