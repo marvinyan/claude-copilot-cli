@@ -2,13 +2,19 @@
 
 import 'dotenv/config';
 import { Client, CompletionResponse, HUMAN_PROMPT } from '@anthropic-ai/sdk';
-import { PROMPT_TEMPLATE } from './constants.js';
 import format from 'string-template';
-import inquirer, { ListQuestion } from 'inquirer';
+import inquirer from 'inquirer';
 import { exec } from 'child_process';
 import util from 'util';
-
 import chalk from 'chalk';
+import readline from 'readline';
+
+import { formatNumberedList, getExtractedCompletion } from './utils.js';
+import {
+  PROMPT_TEMPLATE_COMMAND_ONLY,
+  PROMPT_TEMPLATE_EXPLANATION_ONLY,
+  RESULT_EVALUATION_CHOICES,
+} from './constants.js';
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {
@@ -33,7 +39,7 @@ const completeSync = async function (
     return client.complete({
       prompt,
       stop_sequences: [HUMAN_PROMPT],
-      max_tokens_to_sample: 200,
+      max_tokens_to_sample: 2000,
       model: 'claude-v1',
     });
   } catch (error) {
@@ -43,6 +49,9 @@ const completeSync = async function (
 };
 
 function displayResult(query: string, commands: string[], explanation: string) {
+  readline.cursorTo(process.stdout, 0, 0);
+  readline.clearScreenDown(process.stdout);
+
   const headerStyle = chalk.black.bgWhite;
   const lineLength = 100;
 
@@ -67,18 +76,7 @@ async function showUserChoices(
   history: string[],
   commands: string[]
 ): Promise<void> {
-  const question: ListQuestion<{ choice: string }> = {
-    type: 'list',
-    name: 'choice',
-    message: 'Choose an option:',
-    choices: [
-      '✅ This looks right, thank you!',
-      '🤔 Actually, I can be more specific. Let me clarify.',
-      '❌ Cancel',
-    ],
-  };
-
-  const answer = await inquirer.prompt(question);
+  const answer = await inquirer.prompt(RESULT_EVALUATION_CHOICES);
   const choice = answer.choice.split(' ')[0];
 
   switch (choice) {
@@ -115,41 +113,52 @@ async function showUserChoices(
       }
       break;
     }
-    // case '🤔': {
-    //   const revisedQueryAnswer = await inquirer.prompt([
-    //     {
-    //       type: 'input',
-    //       name: 'revisedQuery',
-    //       message: 'Please enter your revised query: ',
-    //     },
-    //   ]);
-    //   // Add the new query to the history array and re-run completeSync
-    //   history.push(revisedQueryAnswer.revisedQuery);
-    //   await runCliHelp(history);
-    //   break;
-    // }
-    case '❌':
+    case '🤔': {
+      const revisedQueryAnswer: { revision: string } = await inquirer.prompt([
+        {
+          type: 'input',
+          name: 'revision',
+          message: 'Enter your revision: ',
+        },
+      ]);
+      // Add the new query to the history array and re-run completeSync
+      history.push(revisedQueryAnswer.revision);
+      await runCliHelp(history);
       break;
+    }
     default:
       break;
   }
 }
 
-const query = args.length === 1 ? args[0] : args.join(' ');
+async function runCliHelp(userInputs: string[]) {
+  // joinedUserInputs is a string consisting of a numbered list of the user inputs
+  const joinedUserInputs = formatNumberedList(userInputs);
 
-async function runCliHelp(history: string[]) {
-  const userInput = history.join(' ');
-  const prompt = format(PROMPT_TEMPLATE, { userInput });
+  const promptForCommands = format(PROMPT_TEMPLATE_COMMAND_ONLY, {
+    userInputs: joinedUserInputs,
+  });
 
   try {
-    const res = await completeSync(prompt);
-    const completionText = JSON.parse(res.completion);
-    const { commands, explanation } = completionText;
-    displayResult(userInput, commands, explanation);
-    await showUserChoices(history, commands);
+    const extractedCommandJson: {
+      commands: string[];
+    } = await getExtractedCompletion(promptForCommands, completeSync);
+    const promptForExplanation = format(PROMPT_TEMPLATE_EXPLANATION_ONLY, {
+      terminalCommands: formatNumberedList(extractedCommandJson.commands),
+    });
+    const explanationCompletionJson: {
+      explanation: string;
+    } = await getExtractedCompletion(promptForExplanation, completeSync);
+
+    const { commands } = extractedCommandJson;
+    const { explanation } = explanationCompletionJson;
+
+    displayResult(joinedUserInputs, commands, explanation);
+    await showUserChoices(userInputs, commands);
   } catch (error) {
     console.error(error);
   }
 }
 
+const query = args.length === 1 ? args[0] : args.join(' ');
 void runCliHelp([query]);
