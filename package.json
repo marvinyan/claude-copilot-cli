@@ -2,7 +2,8 @@
   "name": "claude-cli-copilot",
   "version": "0.0.1",
   "description": "Command line assistance powered by Anthropic AI's Claude model",
-  "main": "./lib/index.js",
+  "exports": "./lib/index.js",
+  "type": "module",
   "files": [
     "lib/**/*"
   ],
@@ -18,11 +19,11 @@
     "typecheck": "tsc --noEmit"
   },
   "bin": {
-    "c3": "./index.js"
+    "c3?": "./lib/index.js"
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/ryansonshine/typescript-npm-package-template.git"
+    "url": "git+https://github.com/marvinyan/claude-cli-copilot.git"
   },
   "license": "MIT",
   "author": {
@@ -30,7 +31,7 @@
     "url": "https://github.com/marvinyan/claude-cli-copilot"
   },
   "engines": {
-    "node": ">=18.0.0"
+    "node": ">=16"
   },
   "keywords": [
     "boilerplate",
@@ -123,6 +124,12 @@
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.4.3",
-    "commitizen": "^4.3.0"
+    "@types/inquirer": "^9.0.3",
+    "@types/string-template": "^1.0.2",
+    "chalk": "^5.2.0",
+    "commitizen": "^4.3.0",
+    "dotenv": "^16.0.3",
+    "inquirer": "^9.2.6",
+    "string-template": "^1.0.0"
   }
 }

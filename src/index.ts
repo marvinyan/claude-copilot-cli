@@ -1,21 +1,12 @@
 #!/usr/bin/env node
 
-// The tool should be run by entering a command formatted like this: c3? "How do I make a git commit?"
-// This is a command line tool that helps users find and use the right git commands.
-// When the tool is run, the user's question is sent to an API endpoint. The endpoint streams response as server-sent events.
-
-// Here are the features the tool should have:
-// - Installs as an npm package.
-// - Display the response in the terminal as the SSE data comes in.
-// - The tool is run by entering a command formatted like this: c3? "How do I make a git commit?"
-
 import 'dotenv/config';
-import {
-  AI_PROMPT,
-  Client,
-  CompletionResponse,
-  HUMAN_PROMPT,
-} from '@anthropic-ai/sdk';
+import { Client, CompletionResponse, HUMAN_PROMPT } from '@anthropic-ai/sdk';
+import { PROMPT_TEMPLATE } from './constants.js';
+import format from 'string-template';
+import inquirer, { ListQuestion } from 'inquirer';
+
+import chalk from 'chalk';
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {
@@ -25,36 +16,104 @@ if (!apiKey) {
 const client = new Client(apiKey);
 
 const [, , ...args] = process.argv;
-console.log('args', args);
 
-if (args.length !== 1) {
-  // If the user enters `c3?` without a prompt, the tool should display a message that says "Please enter a prompt."
-  console.log('Please enter a prompt.');
-  throw new Error('Please enter a prompt.');
+if (args.length === 0) {
+  console.log('Please enter a query.');
+  // eslint-disable-next-line no-process-exit
+  process.exit(1);
 }
 
-const query = args[0];
-
-export const streamResponse = async function (): Promise<CompletionResponse> {
+const completeSync = async function (
+  prompt: string
+): Promise<CompletionResponse> {
   try {
-    return client.completeStream(
-      {
-        prompt: `${HUMAN_PROMPT}${query}${AI_PROMPT}`,
-        stop_sequences: [HUMAN_PROMPT],
-        max_tokens_to_sample: 100,
-        model: 'claude-v1',
-      },
-      {
-        onOpen: response => {
-          console.log('Opened stream, HTTP status code', response.status);
-        },
-        onUpdate: completion => {
-          console.log(completion.completion);
-        },
-      }
-    );
+    return client.complete({
+      prompt,
+      stop_sequences: [HUMAN_PROMPT],
+      max_tokens_to_sample: 200,
+      model: 'claude-v1',
+    });
   } catch (error) {
     console.error(error);
   }
-  return Promise.reject(new Error('Failed to complete stream'));
+  return Promise.reject(new Error('Failed to complete'));
 };
+
+function displayResult(query: string, command: string, explanation: string) {
+  const headerStyle = chalk.black.bgWhite;
+  const lineLength = 100;
+
+  function createCenteredHeader(text: string, lineLength: number) {
+    const spacesLength = Math.abs(lineLength - text.length - 2);
+    const halfSpaces = '─'.repeat(Math.floor(spacesLength / 2));
+    return (
+      halfSpaces +
+      ' ' +
+      text +
+      ' ' +
+      halfSpaces +
+      (spacesLength % 2 === 1 ? '─' : '')
+    );
+  }
+
+  console.log();
+  console.log(createCenteredHeader(headerStyle('Query'), lineLength));
+  console.log(`\n${query}\n`);
+  console.log(createCenteredHeader(headerStyle('Command'), lineLength));
+  console.log(`\n${command}\n`);
+  console.log(createCenteredHeader(headerStyle('Explanation'), lineLength));
+  console.log(`\n${explanation}\n`);
+}
+
+async function showUserChoices() {
+  const question: ListQuestion<{ choice: string }> = {
+    type: 'list',
+    name: 'choice',
+    message: 'Choose an option:',
+    choices: [
+      '✅ This looks right, thank you!',
+      '🤔 Actually, I can be more specific. Let me clarify.',
+      '❌ Cancel',
+    ],
+  };
+
+  const answer = await inquirer.prompt(question);
+  const choice = answer.choice.split(' ')[0];
+
+  switch (choice) {
+    // case '✅':
+    //   // TODO: Execute the command (use appropriate method, such as child_process.exec)
+    //   break;
+    // case '🤔':
+    //   const revisedQueryAnswer = await inquirer.prompt([
+    //     {
+    //       type: 'input',
+    //       name: 'revisedQuery',
+    //       message: 'Please enter your revised query: ',
+    //     },
+    //   ]);
+    //   // Add the new query to the history array and re-run completeSync
+    //   history.push(revisedQueryAnswer.revisedQuery);
+    //   completeSync(revisedQueryAnswer.revisedQuery);
+    //   break;
+    case '❌':
+      break;
+    default:
+      break;
+  }
+}
+
+const query = args.length === 1 ? args[0] : args.join(' ');
+const prompt = format(PROMPT_TEMPLATE, { userInput: query });
+const history = [];
+
+completeSync(prompt)
+  .then(res => {
+    const completionText = JSON.parse(res.completion);
+    const { commands, explanation } = completionText;
+    displayResult(query, commands, explanation);
+    return showUserChoices(); // 3. Add a return statement
+  })
+  .catch(error => {
+    process.stdout.write(error);
+  });
