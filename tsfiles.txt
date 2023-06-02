@@ -1,0 +1,7 @@
+./lib/constants.d.ts
+./lib/index.d.ts
+./lib/utils.d.ts
+./src/constants.ts
+./src/index.ts
+./src/utils.ts
+./test/index.spec.ts

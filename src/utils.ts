@@ -35,7 +35,7 @@ export async function getExtractedCompletion(
     }
 
     console.log("Unable to extract completion from API's response");
-    console.log(completionResponse.completion);
+    console.log(completionResponse);
     throw error;
   }
 }
